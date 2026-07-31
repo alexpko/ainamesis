@@ -6,3 +6,9 @@ ollama>=0.3.0
 pandas>=2.0.0
 requests>=2.31.0
 pydantic>=2.0.0
+
+# Added for OCR and Imaging
+pytesseract>=0.3.10
+easyocr>=1.7.1
+opencv-python>=4.8.0
+pillow>=10.0.0
