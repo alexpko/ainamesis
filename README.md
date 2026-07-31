@@ -11,8 +11,12 @@ aInamnesis is an offline-first, intelligent system designed to seamlessly transf
 ## 3. AI Approach and Architecture
 The system utilizes a multi-tiered, privacy-focused AI architecture:
 *   **Speech Transcription:** Deploys a localized Whisper-based speech transcription engine capable of highly accurate, multi-lingual voice-to-text processing suited for intercultural clinics.
-*   **Local LLM Processing:** Utilizes self-hosted local AI frameworks (such as Ollama) to parse the raw transcription into structured medical formats (e.g., SOAP notes, clinical summaries) without sending sensitive data over the internet.
-*   **Knowledge Integration:** Outputs the structured data directly into local Markdown files for seamless integration with database and note-taking utilities.
+*   **Multimodal Input (OCR & Imaging):** Integrates Tesseract/EasyOCR to digitize paper-based records and utilizes vision-capable local LLMs to extract findings from diagnostic scans and dermatological imagery.
+*   **Local LLM Synthesis:** Utilizes self-hosted local AI frameworks (such as Ollama) to parse and synthesize transcription, OCR, and image data into structured formats (e.g., SOAP notes, longitudinal history summaries).
+*   **Knowledge Integration:** Outputs structured, time-stamped Markdown files for seamless integration with local database and note-taking utilities (e.g., Obsidian) and secure networking (e.g., Tailscale) for private synchronization.
 
 ## 4. How IBM Bob Was Used
-IBM Bob served as the primary development tool to orchestrate the AI pipeline. It was utilized to rapidly prototype the integration between the local transcription engine and the LLM summarization nodes. IBM Bob facilitated the logic mapping required to extract specific clinical parameters from unstructured text and structure the final output, significantly accelerating the development of the system's core transformation capabilities.
+IBM Bob served as the primary development tool to orchestrate the AI pipeline. It was critical in:
+*   **Architecting the Logic:** Mapping the integration between heterogeneous inputs (audio, image, OCR) and the structured output node.
+*   **Implementation Planning:** Rapidly prototyping the cross-referencing logic that links today’s consultation with historical lab results.
+*   **Troubleshooting:** Systematically analyzing the pipeline to ensure data fidelity and efficient processing without external cloud dependencies, significantly accelerating the development of the system's core transformation capabilities.
