@@ -1,14 +1,33 @@
-# Core dependencies for aInamnesis
-openai-whisper>=20231117
-langchain>=0.2.0
-langchain-community>=0.2.0
-ollama>=0.3.0
-pandas>=2.0.0
-requests>=2.31.0
+# Core
 pydantic>=2.0.0
+requests>=2.31.0
 
-# Added for OCR and Imaging
-pytesseract>=0.3.10
+# OCR
 easyocr>=1.7.1
+pytesseract>=0.3.10
+pdf2image>=1.17.0
 opencv-python>=4.8.0
 pillow>=10.0.0
+numpy>=1.24.0
+
+# Speech
+openai-whisper>=20231117
+torch>=2.0.0
+
+# LLM / Ollama
+ollama>=0.3.0
+langchain>=0.2.0
+langchain-community>=0.2.0
+
+# Export
+reportlab>=4.0.0
+
+# UI
+streamlit>=1.35.0
+
+# Data
+pandas>=2.0.0
+
+# Tests
+pytest>=7.4.0
+pytest-cov>=4.1.0
