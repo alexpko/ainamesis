@@ -75,11 +75,7 @@ st.caption("All processing is 100 % local. No data leaves your device.")
 # Sidebar — configuration
 with st.sidebar:
     st.header("⚙️ Configuration")
-    ollama_model = st.selectbox(
-        "Ollama Model",
-        ["llama3", "mistral", "medllama2", "llama3:8b"],
-        index=0,
-    )
+    ollama_model = st.text_input("Ollama Model", value="qwen3-v1:8b")
     ollama_url = st.text_input("Ollama URL", value="http://localhost:11434")
     whisper_model = st.selectbox("Whisper Model", ["tiny", "base", "small", "medium", "large"], index=2)
     ocr_lang_input = st.text_input("OCR Languages (comma-separated)", value="en")
