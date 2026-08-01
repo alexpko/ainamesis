@@ -49,6 +49,23 @@ def _get_ocr_engine() -> OCREngine:
     return st.session_state["ocr_engine"]
 
 
+def _init_doc_state() -> None:
+    """Ensure all document-tab session keys exist."""
+    for key, default in [
+        ("ocr_raw_text", ""),
+        ("ocr_page_count", 0),
+        ("ocr_log_file", None),
+        ("last_extraction", None),
+        ("last_doc_suffix", ""),
+        ("last_doc_name", ""),
+    ]:
+        if key not in st.session_state:
+            st.session_state[key] = default
+
+
+_init_doc_state()
+
+
 # ---------------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------------
@@ -81,7 +98,7 @@ tab_doc, tab_audio, tab_history, tab_export = st.tabs(
 )
 
 # ---------------------------------------------------------------------------
-# Tab 1 — Document OCR + LLM extraction
+# Tab 1 — Document OCR + editable review + LLM extraction
 # ---------------------------------------------------------------------------
 with tab_doc:
     st.subheader("Upload a medical document")
@@ -90,7 +107,8 @@ with tab_doc:
         type=["pdf", "jpg", "jpeg", "png"],
     )
 
-    if uploaded_file and st.button("🔍 Process Document"):
+    # ── Stage 1: OCR ────────────────────────────────────────────────────────
+    if uploaded_file and st.button("🔍 Run OCR"):
         with st.spinner("Running OCR…"):
             suffix = Path(uploaded_file.name).suffix
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -101,16 +119,90 @@ with tab_doc:
             engine = OCREngine(languages=ocr_langs or ["en"], gpu=False)
             ocr_result = engine.process_file(tmp_path)
 
-        st.success(f"OCR complete — {len(ocr_result.pages)} page(s)")
+        # Persist raw OCR text in session so the text_area survives reruns
+        st.session_state["ocr_raw_text"] = ocr_result.full_text
+        st.session_state["ocr_page_count"] = len(ocr_result.pages)
+        st.session_state["ocr_log_file"] = ocr_result.log_file
+        st.session_state["last_doc_suffix"] = suffix
+        st.session_state["last_doc_name"] = uploaded_file.name
+        # Clear any previous extraction so the results panel resets
+        st.session_state["last_extraction"] = None
 
-        with st.expander("Raw OCR text", expanded=False):
-            st.text(ocr_result.full_text[:3000] + ("…" if len(ocr_result.full_text) > 3000 else ""))
+        st.success(
+            f"OCR complete — {len(ocr_result.pages)} page(s), "
+            f"{len(ocr_result.full_text):,} characters extracted."
+        )
+        if ocr_result.log_file:
+            st.caption(f"Log saved: {ocr_result.log_file}")
 
-        with st.spinner("Extracting clinical data via LLM…"):
-            llm_client = OllamaLLMClient(model=ollama_model, base_url=ollama_url)
-            extraction = llm_client.extract(ocr_result.full_text)
+    # ── Stage 2: Editable OCR review ────────────────────────────────────────
+    if st.session_state["ocr_raw_text"]:
+        st.markdown("---")
+        st.subheader("✏️ Review & Edit OCR Text")
+        st.caption(
+            "Correct any OCR errors before sending to the LLM. "
+            "Your edits are used for analysis — the original file is unchanged."
+        )
 
-        st.session_state["last_extraction"] = extraction
+        edited_text = st.text_area(
+            "OCR Text (editable):",
+            value=st.session_state["ocr_raw_text"],
+            height=300,
+            key="ocr_edit_area",
+        )
+
+        col_btn, col_info = st.columns([2, 3])
+        with col_btn:
+            run_llm = st.button("🧠 Analyse with LLM", type="primary")
+        with col_info:
+            delta = len(edited_text) - len(st.session_state["ocr_raw_text"])
+            if delta != 0:
+                st.caption(
+                    f"{'➕' if delta > 0 else '➖'} {abs(delta):,} characters "
+                    f"{'added' if delta > 0 else 'removed'} vs. original OCR"
+                )
+
+        # ── Stage 3: LLM extraction ─────────────────────────────────────────
+        if run_llm:
+            if not edited_text.strip():
+                st.warning("The text area is empty — nothing to analyse.")
+            else:
+                with st.spinner(f"Analysing with Ollama ({ollama_model})…"):
+                    llm_client = OllamaLLMClient(model=ollama_model, base_url=ollama_url)
+                    if not llm_client.is_available():
+                        st.error(
+                            f"Ollama is not running at {ollama_url}. "
+                            "Start it with: `ollama serve`"
+                        )
+                        st.stop()
+                    extraction = llm_client.extract(edited_text)
+
+                st.session_state["last_extraction"] = extraction
+
+                # Persist to DB (uses edited text as the canonical OCR text)
+                db = _get_db()
+                doc_id = db.save_document(DocumentRecord(
+                    file_path=st.session_state["last_doc_name"],
+                    file_type=st.session_state["last_doc_suffix"].lstrip("."),
+                    ocr_text=edited_text,
+                    processed=True,
+                ))
+                db.save_extraction(ExtractionRecord(
+                    document_id=doc_id,
+                    model_used=ollama_model,
+                    diagnosis=extraction.diagnosis,
+                    medications=[m.model_dump() for m in extraction.medications],
+                    allergies=extraction.allergies,
+                    laboratory_results=[l.model_dump() for l in extraction.laboratory_results],
+                    timeline=[t.model_dump() for t in extraction.timeline],
+                ))
+                st.success(f"Analysis complete — saved to database (document_id={doc_id})")
+
+    # ── Stage 4: Results display ─────────────────────────────────────────────
+    extraction = st.session_state.get("last_extraction")
+    if extraction is not None:
+        st.markdown("---")
+        st.subheader("📋 Extraction Results")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -141,25 +233,6 @@ with tab_doc:
         timeline = TimelineBuilder().build(extraction)
         for entry in timeline.sorted_entries():
             st.markdown(f"- **{entry.display_date()}** — {entry.event}")
-
-        # Persist to DB
-        db = _get_db()
-        doc_id = db.save_document(DocumentRecord(
-            file_path=uploaded_file.name,
-            file_type=suffix.lstrip("."),
-            ocr_text=ocr_result.full_text,
-            processed=True,
-        ))
-        db.save_extraction(ExtractionRecord(
-            document_id=doc_id,
-            model_used=ollama_model,
-            diagnosis=extraction.diagnosis,
-            medications=[m.model_dump() for m in extraction.medications],
-            allergies=extraction.allergies,
-            laboratory_results=[l.model_dump() for l in extraction.laboratory_results],
-            timeline=[t.model_dump() for t in extraction.timeline],
-        ))
-        st.info(f"Saved to database (document_id={doc_id})")
 
 # ---------------------------------------------------------------------------
 # Tab 2 — Audio transcription
