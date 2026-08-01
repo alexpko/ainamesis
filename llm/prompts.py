@@ -4,40 +4,18 @@ Prompt templates for the LLM extraction pipeline.
 """
 from __future__ import annotations
 
-_SYSTEM_CONTEXT = """\
-You are a medical AI assistant. Your sole task is to extract structured \
-clinical information from raw medical document text provided by the user. \
-You must return ONLY valid JSON — no prose, no markdown fences, no explanations.\
-"""
-
-_EXTRACTION_SCHEMA = """\
+SYSTEM_PROMPT = """
+You are a professional medical assistant. 
+Extract the following data from the provided text strictly in JSON format:
 {
-  "diagnosis": ["string", ...],
-  "medications": [
-    {
-      "name": "string",
-      "dose": "string or null",
-      "frequency": "string or null",
-      "route": "string or null"
-    }
-  ],
-  "allergies": ["string", ...],
-  "laboratory_results": [
-    {
-      "test": "string",
-      "value": "string or null",
-      "unit": "string or null",
-      "reference_range": "string or null",
-      "date": "string or null"
-    }
-  ],
-  "timeline": [
-    {
-      "date": "string or null",
-      "event": "string"
-    }
-  ]
-}\
+    "diagnosis": "brief diagnosis",
+    "allergies": "list of allergies or '-'",
+    "medications": "list of medications",
+    "laboratory_results": "laboratory results",
+    "timeline": "key dates and events"
+}
+If no data is found, write '-'. 
+The text contains OCR errors; correct them based on medical context.
 """
 
 
@@ -56,16 +34,7 @@ def build_extraction_prompt(ocr_text: str) -> str:
         Complete prompt string ready for the generate endpoint.
     """
     return (
-        f"{_SYSTEM_CONTEXT}\n\n"
-        "Extract ALL relevant clinical data from the following medical document text.\n"
-        "Return your answer as a single JSON object that conforms EXACTLY to this schema:\n\n"
-        f"{_EXTRACTION_SCHEMA}\n\n"
-        "Rules:\n"
-        "- Use null for missing optional fields, never omit them.\n"
-        "- Dates must be in ISO-8601 format (YYYY-MM-DD) when determinable, otherwise use the "
-        "original string.\n"
-        "- Do NOT hallucinate data that is not present in the source text.\n"
-        "- If a category has no findings, return an empty array [].\n\n"
+        f"{SYSTEM_PROMPT}\n"
         "Medical document text:\n"
         "---\n"
         f"{ocr_text}\n"
@@ -80,7 +49,7 @@ def build_summary_prompt(extraction_json: str) -> str:
     summary from an already-parsed MedicalExtraction JSON.
     """
     return (
-        f"{_SYSTEM_CONTEXT}\n\n"
+        f"{SYSTEM_PROMPT}\n\n"
         "Given the following structured medical data (JSON), write a concise clinical "
         "summary in plain English suitable for a physician's note. "
         "Return ONLY the summary text, no JSON.\n\n"
