@@ -5,17 +5,29 @@ Prompt templates for the LLM extraction pipeline.
 from __future__ import annotations
 
 SYSTEM_PROMPT = """
-You are a professional medical assistant. 
-Extract the following data from the provided text strictly in JSON format:
+You are a medical data extraction assistant.
+Extract data from the text and return ONLY a valid JSON object.
+Do not write conversational text.
+
+Required JSON format:
 {
-    "diagnosis": "brief diagnosis",
-    "allergies": "list of allergies or '-'",
-    "medications": "list of medications",
-    "laboratory_results": "laboratory results",
-    "timeline": "key dates and events"
+    "diagnosis": "Extract diagnosis or write '-'",
+    "allergies": "Extract allergies or write '-'",
+    "medications": "Extract medications or write '-'",
+    "laboratory_results": "Extract lab results or write '-'",
+    "timeline": "Extract dates and upcoming appointments or write '-'"
 }
-If no data is found, write '-'. 
-The text contains OCR errors; correct them based on medical context.
+
+Example output:
+{
+    "diagnosis": "Abrupce mediálního kondylu femuru",
+    "allergies": "-",
+    "medications": "Ibalgin 400mg",
+    "laboratory_results": "-",
+    "timeline": "Kontrola 12.8.2026"
+}
+
+Correct OCR errors based on medical context.
 """
 
 
