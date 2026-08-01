@@ -159,29 +159,94 @@ class OllamaLLMClient:
 
     def _parse_response(self, raw: str) -> MedicalExtraction:
         """Extract JSON from the LLM response and validate it."""
+        # Step 1: pull JSON text out of whatever the model wrapped it in
         json_str = self._extract_json_block(raw)
         if not json_str:
             logger.warning("No JSON block found in LLM response. Attempting full parse.")
             json_str = raw.strip()
 
+        # Step 2: parse to dict
         try:
             data = json.loads(json_str)
-            return MedicalExtraction(**data)
         except json.JSONDecodeError as exc:
             logger.error("JSON decode error: %s\n--- raw ---\n%s", exc, raw[:500])
+            return MedicalExtraction()
+
+        # Step 3: normalise flat strings → list/model shapes expected by Pydantic.
+        # The current SYSTEM_PROMPT returns plain strings per field; convert them
+        # so the rest of the pipeline (timeline builder, exports, DB) works unchanged.
+        data = self._normalise_data(data)
+
+        # Step 4: validate with Pydantic
+        try:
+            return MedicalExtraction(**data)
         except Exception as exc:
             logger.error("Pydantic validation error: %s", exc)
         return MedicalExtraction()
 
     @staticmethod
     def _extract_json_block(text: str) -> Optional[str]:
-        """Pull the first ```json … ``` fence or bare { … } block from text."""
-        # Fenced code block: ```json ... ```
-        fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        """Pull the first ```json … ``` fence or bare { … } block from text.
+
+        Uses greedy ``.*`` (not ``.*?``) so multi-line JSON inside a fence is
+        captured in full.
+        """
+        # Fenced code block: ```json ... ``` or ``` ... ```
+        fence_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
         if fence_match:
             return fence_match.group(1)
-        # Bare JSON object
+        # Bare JSON object — greedily match outermost { … }
         brace_match = re.search(r"(\{.*\})", text, re.DOTALL)
         if brace_match:
             return brace_match.group(1)
         return None
+
+    @staticmethod
+    def _normalise_data(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Coerce flat string values returned by the simple SYSTEM_PROMPT into
+        the list/nested-model shapes that ``MedicalExtraction`` expects.
+
+        - ``diagnosis``          str  → [str]  (or keep list as-is)
+        - ``allergies``          str  → [str]
+        - ``medications``        str  → [MedicationEntry-compatible dict]
+        - ``laboratory_results`` str  → [LabResult-compatible dict]
+        - ``timeline``           str  → [TimelineEvent-compatible dict]
+        A value of ``"-"`` is treated as empty.
+        """
+        def _as_list_of_str(val) -> list:
+            if not val or val == "-":
+                return []
+            if isinstance(val, list):
+                return val
+            # Split on commas or semicolons for multi-value strings
+            return [s.strip() for s in re.split(r"[;,]\s*", str(val)) if s.strip()]
+
+        def _as_medication_list(val) -> list:
+            if not val or val == "-":
+                return []
+            if isinstance(val, list):
+                return val
+            # Each comma/semicolon-separated token becomes a minimal entry
+            return [{"name": s.strip()} for s in re.split(r"[;,]\s*", str(val)) if s.strip()]
+
+        def _as_lab_list(val) -> list:
+            if not val or val == "-":
+                return []
+            if isinstance(val, list):
+                return val
+            return [{"test": s.strip()} for s in re.split(r"[;,]\s*", str(val)) if s.strip()]
+
+        def _as_timeline_list(val) -> list:
+            if not val or val == "-":
+                return []
+            if isinstance(val, list):
+                return val
+            return [{"date": None, "event": s.strip()} for s in re.split(r"[;,]\s*", str(val)) if s.strip()]
+
+        return {
+            "diagnosis":          _as_list_of_str(data.get("diagnosis")),
+            "allergies":          _as_list_of_str(data.get("allergies")),
+            "medications":        _as_medication_list(data.get("medications")),
+            "laboratory_results": _as_lab_list(data.get("laboratory_results")),
+            "timeline":           _as_timeline_list(data.get("timeline")),
+        }
